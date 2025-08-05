@@ -1,1 +1,8 @@
-THE ORIGINAL DATA ARE NOT KEPT HERE FOR LIGHT STORAGE CAPACITY. CHECK THE .pickle IN THE LOCAL MACBOOK FOLDER
+THE ORIGINAL DATA ARE NOT KEPT HERE FOR THE SAKE OF THE STORAGE CAPACITY. CHECK THE .pickle IN THE LOCAL MACBOOK FOLDER (path: /Users/cristobal/Documents/Master UC3M/s_cuatrimestre4/TFM). STILL, EVEN THERE SOME SUB-SETS OF THE DATA REQUIRED FOR THE CODE FUNCTIONALITY ARE MISSING. IN PARTICULAR:
+
+- imageset_cam1.pickle (Images with only cam1, hence a third of the space. Obtained through the snippet take_cam1.py)
+- imageset_reduced.pickle (Only cam 1 and aerosol, multinube and nimbostrato types removed. Obtained through one of the cells of the notebook review_resnet_code.ipynb)
+- metadata_reduced.pickle (Metadata for excluded aerosol, multinube and nimbostrato types instances. Obtained through the same notebook as imagest_reduced.pickle)
+- results (directory) (Directory containing the results of the different trained models)
+
+All of the previous can be found in the UC3M server 163.117.164.145 under the user csanchezmoreno (path: /home/csanchezmoreno/tfm/data).
