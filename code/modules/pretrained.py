@@ -63,7 +63,7 @@ class pretrained:
                           "rmsprop": torch.optim.RMSprop(self.model.parameters(), self.learning_rate)}
             self.optimizer = optimizers[optimizer]
 
-    def train(self, train_loader: DataLoader, val_loader: DataLoader, epochs: int = 30, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
+    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 30, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
         self.model.to(self.device)
         best_model = deepcopy(self.model.state_dict())
         best_loss = float('inf')
@@ -90,7 +90,6 @@ class pretrained:
             if not validation: 
                 print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f}")
 
-            # Validation
             if validation:
                 self.model.eval()
                 val_loss = 0.0
@@ -105,7 +104,6 @@ class pretrained:
 
                 print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}")
 
-                # Early stopping
                 if early_stopping:
                     if avg_val_loss < best_loss:
                         best_loss = avg_val_loss
