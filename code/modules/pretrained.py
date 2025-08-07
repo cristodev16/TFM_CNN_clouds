@@ -1,11 +1,13 @@
 import torchvision.models as models
-from difflib import SequenceMatcher
-from types import NoneType
-from copy import deepcopy
+from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
+from copy import deepcopy
 from collections import OrderedDict
-from torch.utils.data import DataLoader
+from sklearn.metrics import classification_report, confusion_matrix
+import numpy as np 
+from difflib import SequenceMatcher
+from types import NoneType
 
 def unmatch_suggest(available_elements: list[str], element: str) -> NoneType | str:
     similarity = 0
@@ -16,8 +18,8 @@ def unmatch_suggest(available_elements: list[str], element: str) -> NoneType | s
             suggested = available_element
     return suggested if suggested else None
 
-class pretrained:
-    available_optimizers = ["adam", "sgd", "rmsprop"]
+class Pretrained:
+    available_optimizers: list[str] = ["adam", "sgd", "rmsprop"]
 
     def __init__(self, model_name: str, device: torch.device | NoneType = None, lr: float | NoneType = None):
         self.select_model_initialize_weights(model_name)
@@ -25,6 +27,8 @@ class pretrained:
         self.learning_rate = lr if lr is not None else 1e-3
         self.optimizer = torch.optim.Adam(self.model.parameters(), self.learning_rate)
         self.criterion = nn.CrossEntropyLoss()
+        if self.device == "cpu":
+            print("WARNING: GPU not found to be available. Model and data will be loaded into CPU.")
 
     def select_model_initialize_weights(self, model_name: str):
         if model_name in models.list_models():
@@ -54,16 +58,16 @@ class pretrained:
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
 
     def set_optimizer(self, optimizer: str):
-        if optimizer not in pretrained.available_optimizers:
-            suggested_optimizer = unmatch_suggest(pretrained.available_optimizers, optimizer)
-            print(f"Selected optimizer not available. Did you mean {suggested_optimizer}? Available options are: {pretrained.available_optimizers}. Using default (adam) now.")
+        if optimizer not in Pretrained.available_optimizers:
+            suggested_optimizer = unmatch_suggest(Pretrained.available_optimizers, optimizer)
+            print(f"Selected optimizer not available. Did you mean {suggested_optimizer}? Available options are: {Pretrained.available_optimizers}. Using default (adam) now.")
         else:
             optimizers = {"adam": torch.optim.Adam(self.model.parameters(), self.learning_rate),
                           "sgd": torch.optim.SGD(self.model.parameters(), self.learning_rate), 
                           "rmsprop": torch.optim.RMSprop(self.model.parameters(), self.learning_rate)}
             self.optimizer = optimizers[optimizer]
 
-    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 30, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
+    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 20, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
         self.model.to(self.device)
         best_model = deepcopy(self.model.state_dict())
         best_loss = float('inf')
@@ -123,5 +127,34 @@ class pretrained:
 
         return train_losses, val_losses, n_epochs, self.model.state_dict()
     
-    def test(self):
-        pass
+    def test(self, test_loader: DataLoader) -> tuple[float, float, dict, np.ndarray]:
+        self.model.to(self.device)
+        self.model.eval()
+
+        test_loss = 0.0
+        correct = 0
+        total = 0
+        all_preds = []
+        all_labels = []
+
+        with torch.no_grad():
+            for inputs, labels in test_loader:
+                inputs, labels = inputs.to(self.device), labels.to(self.device)
+                outputs = self.model(inputs)
+                loss = self.criterion(outputs, labels)
+                test_loss += loss.item()
+
+                _, predicted = torch.max(outputs, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+                all_preds.extend(predicted.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+
+        avg_test_loss = test_loss / len(test_loader)
+        accuracy = correct / total
+        class_report = classification_report(all_labels, all_preds, output_dict=True)
+        conf_matrix = confusion_matrix(all_labels, all_preds)
+
+        print(f"Test Loss: {avg_test_loss:.4f} - Test Accuracy: {accuracy*100:.2f}%")
+        return avg_test_loss, accuracy, class_report, conf_matrix

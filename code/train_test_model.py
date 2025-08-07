@@ -5,6 +5,7 @@ import pandas as pd
 from sklearn.model_selection import StratifiedShuffleSplit
 from modules.transformations import pretrainedTransforms
 from modules.data import Data
+from modules.pretrained import Pretrained
 import argparse
 
 def fix_seed(seed=42):
@@ -35,13 +36,18 @@ def main():
     labels_df_path = "/home/csanchezmoreno/tfm/data/metadata_reduced.pickle"
     images_path = "/home/csanchezmoreno/tfm/data/imageset_reduced.pickle"
     data = Data(images_path, labels_df_path)
-    #labels_df = pd.read_pickle("../data/metadata_reduced.pickle").reset_index()
-    #images = pd.read_pickle("../data/images_reduced.pickle")
 
-    # Only one fixed option (for now) for the transform
-    transform = pretrainedTransforms()
-
+    # VARIABLES AND MODEL INITIALIZATION AND CONFIGURATION
+    transform = pretrainedTransforms() # Only one fixed option (pretrained for now) for the transform
+    train_all_data = True
+    chosen_model = "resnet18"
+    model = Pretrained(chosen_model)
+    model.reset_fc_layer()
+    model.freeze_all_layers_but_fc()
     ns_epochs = []
+    
+
+    # Iterative training and testing 
     for i in range(len(test_dates)+1):
         stratified_split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=seed+i)
         if i != len(test_dates):
@@ -53,23 +59,21 @@ def main():
 
 
 
+
+
+
+
             # AFTER TRAINING AND EVALUATING DON'T FORGET TO FREE BOTH GPU AND CPU RESOURCES TO 
-            # AVOID OUT_OF_ERROR EXCEPTIONS 
+            # AVOID OUT_OF_MEMORY EXCEPTIONS 
 
 
 
 
-        else:
+        elif train_all_data:
             # Here we train with the whole dataset using a number of epochs being the average of the optimal ones found before
             # and we keep as estimation of future performance the average of the performance measures obtained for each testing 
             # partition 
             pass
-
-
-
-
-
-
 
 if __name__=="__main__":
     main()
