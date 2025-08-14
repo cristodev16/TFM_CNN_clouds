@@ -18,39 +18,44 @@ def unmatch_suggest(available_elements: list[str], element: str) -> NoneType | s
             suggested = available_element
     return suggested if suggested else None
 
-class Pretrained:
+class KnownModel:
     available_optimizers: list[str] = ["adam", "sgd", "rmsprop"]
 
-    def __init__(self, model_name: str, device: torch.device | NoneType = None, lr: float | NoneType = None):
-        self.select_model_initialize_weights(model_name)
+    def __init__(self, model_name: str, pretrained: bool = False, device: torch.device | NoneType = None, lr: float | NoneType = None):
+        self.model_name = model_name
+        self.pretrained = pretrained
+        self.initialize_model_weights()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") if device is None else device
-        self.learning_rate = lr if lr is not None else 1e-3
+        self.learning_rate = lr if lr else 1e-3
         self.optimizer = torch.optim.Adam(self.model.parameters(), self.learning_rate)
         self.criterion = nn.CrossEntropyLoss()
-        if self.device == "cpu":
+        if device is None and self.device == "cpu":
             print("WARNING: GPU not found to be available. Model and data will be loaded into CPU.")
 
-    def select_model_initialize_weights(self, model_name: str):
-        if model_name in models.list_models():
-            try:
-                self.model_weights = models.get_model_weights(model_name).DEFAULT
-            except Exception:
-                raise ValueError("Chosen model does not have existing pre-trained weights in torchvision package.")
+    def initialize_model_weights(self):
+        if self.model_name in models.list_models():
+            if self.pretrained:
+                try:
+                    self.model_weights = models.get_model_weights(self.model_name).DEFAULT
+                except Exception:
+                    raise ValueError("Chosen model does not have existing pre-trained weights in torchvision package.")
+            else:
+                self.model_weights = None
         else:
-            suggested_model = unmatch_suggest(models.list_models(), model_name)
+            suggested_model = unmatch_suggest(models.list_models(), self.model_name)
             if suggested_model:
                 raise ValueError(f"Input model name does not match any of the available ones in torch vision. Did you mean {suggested_model}?")
             else:
                 raise ValueError(f"Input model name does not match any of the available ones in torch vision.")
-        self.model = models.get_model(model_name, weights=self.model_weights)
+        self.model = models.get_model(self.model_name, weights=self.model_weights)
 
     def freeze_all_layers_but_fc(self):
         for param in self.model.parameters():
             param.requires_grad = False
-        for param_fc in self.model.fc.parameter():
+        for param_fc in self.model.fc.parameters():
             param_fc.requires_grad = True
 
-    def unfreeze(self):
+    def unfreeze_all(self):
         for param in self.model.parameters():
             param.requires_grad = True
 
@@ -58,9 +63,9 @@ class Pretrained:
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
 
     def set_optimizer(self, optimizer: str):
-        if optimizer not in Pretrained.available_optimizers:
-            suggested_optimizer = unmatch_suggest(Pretrained.available_optimizers, optimizer)
-            print(f"Selected optimizer not available. Did you mean {suggested_optimizer}? Available options are: {Pretrained.available_optimizers}. Using default (adam) now.")
+        if optimizer not in KnownModel.available_optimizers:
+            suggested_optimizer = unmatch_suggest(KnownModel.available_optimizers, optimizer)
+            print(f"WARNING: Selected optimizer not available. Did you mean {suggested_optimizer}? Available options are: {KnownModel.available_optimizers}. Using default (adam) now.")
         else:
             optimizers = {"adam": torch.optim.Adam(self.model.parameters(), self.learning_rate),
                           "sgd": torch.optim.SGD(self.model.parameters(), self.learning_rate), 
@@ -68,6 +73,12 @@ class Pretrained:
             self.optimizer = optimizers[optimizer]
 
     def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 20, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
+        self.reset_fc_layer(num_classes=len(train_loader.dataset.classes))
+        if self.pretrained:
+            self.freeze_all_layers_but_fc()
+        else:
+            self.unfreeze_all()
+
         self.model.to(self.device)
         best_model = deepcopy(self.model.state_dict())
         best_loss = float('inf')
@@ -91,8 +102,9 @@ class Pretrained:
             avg_train_loss = running_loss / len(train_loader)
             train_losses.append(avg_train_loss)
 
-            if not validation: 
-                print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f}")
+            if not validation:
+
+                print(f"\t\tEpoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f}")
 
             if validation:
                 self.model.eval()
@@ -106,7 +118,7 @@ class Pretrained:
                 avg_val_loss = val_loss / len(val_loader)
                 val_losses.append(avg_val_loss)
 
-                print(f"Epoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}")
+                print(f"\t\tEpoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f} - Val Loss: {avg_val_loss:.4f}")
 
                 if early_stopping:
                     if avg_val_loss < best_loss:
@@ -118,12 +130,13 @@ class Pretrained:
                         wait += 1
                         if wait >= patience:
                             n_epochs = epoch+1
-                            print(f"Early stopping at epoch {n_epochs}")
+                            print(f"\t\tEarly stopping at epoch {n_epochs} (patience {patience})...")
+                            n_epochs = n_epochs - patience
                             break
-        if validation and early_stopping: 
-            self.model.load_state_dict(best_model)
         else:
             n_epochs = epochs
+        if validation and early_stopping: 
+            self.model.load_state_dict(best_model)
 
         return train_losses, val_losses, n_epochs, self.model.state_dict()
     
@@ -156,5 +169,5 @@ class Pretrained:
         class_report = classification_report(all_labels, all_preds, output_dict=True)
         conf_matrix = confusion_matrix(all_labels, all_preds)
 
-        print(f"Test Loss: {avg_test_loss:.4f} - Test Accuracy: {accuracy*100:.2f}%")
+        print(f"\t\tTest Loss: {avg_test_loss:.4f} - Test Accuracy: {accuracy*100:.2f}%")
         return avg_test_loss, accuracy, class_report, conf_matrix

@@ -53,10 +53,3 @@ print(results_df)
 # Export to pickle file:
 #results_df.to_pickle(path="types_per_day.pickle")
 # ---------------------------------------------------------------
-
-
-# -----------------------TYPES REMOVAL -----------------------
-restricted_df = date_type[(date_type["types"]!="aerosol") & (date_type["types"]!="nimboestrato") & (date_type["types"]!="multinube")]
-print("The original number of instaces is:", len(date_type))
-print("The restricted number of instances (after removing aerosol,, multinube and nimboestrato) is:", len(restricted_df))
-# ------------------------------------------------------------

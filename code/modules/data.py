@@ -49,13 +49,13 @@ class Data:
 
         return train_indices, train_train_indices, train_val_indices, test_indices
     
-    def get_loaders(self, date: str, stratified_split: StratifiedShuffleSplit, transformation: pretrainedTransforms, batch_sizes: tuple[int] = (64,32,8)) -> tuple[DataLoader]:
+    def get_loaders(self, date: str, stratified_split: StratifiedShuffleSplit, transformation: pretrainedTransforms, batch_sizes: tuple[int] = (32,32,8)) -> tuple[DataLoader]:
         train_indices, train_train_indices, train_val_indices, test_indices = self.get_train_test_val_indices(date=date, stratified_split=stratified_split)
         if self.data_images is None:
             self.data_images = pd.read_pickle(self.path_to_images)
 
         train_train_dataset = MyDataset(images=self.data_images[..., train_train_indices], labels_df=self.data_df.iloc[train_train_indices], transform=transformation)
-        train_dataset = MyDataset(images=self.data_images[..., train_indices], labels_df=self.data_df.iloc[train_train_indices], transform=transformation)
+        train_dataset = MyDataset(images=self.data_images[..., train_indices], labels_df=self.data_df.iloc[train_indices], transform=transformation)
         val_dataset = MyDataset(images=self.data_images[..., train_val_indices], labels_df=self.data_df.iloc[train_val_indices], transform=transformation)
         test_dataset = MyDataset(images=self.data_images[..., test_indices], labels_df=self.data_df.iloc[test_indices], transform=transformation)
         
@@ -65,4 +65,8 @@ class Data:
         test_loader = DataLoader(test_dataset, batch_size=batch_sizes[2], shuffle=True)
 
         return train_loader, train_train_loader, val_loader, test_loader
+    
+    def get_full_loader(self, transformation: pretrainedTransforms, batch_size: int = 64):
+        dataset = MyDataset(images=self.data_images, labels_df=self.data_df, transform=transformation)
+        return DataLoader(dataset, batch_size=batch_size)
         
