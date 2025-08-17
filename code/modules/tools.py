@@ -34,9 +34,9 @@ def results_dir(model: str, pretrained: bool, main_rel_path: str = "../data/resu
          - str: Path created
     """
     model_path = model
-    pretrained_path = "pretrained" if pretrained else ""
+    pretrained_path = "_pretrained" if pretrained else ""
     version = 1
-    full_path = main_rel_path + "/" + model_path + "_" + pretrained_path + "_v" + str(version) + "/"
+    full_path = main_rel_path + "/" + model_path + pretrained_path + "_v" + str(version) + "/"
     while os.path.exists(full_path):
         version += 1
         full_path = main_rel_path + "/" + model_path + "_" + pretrained_path + "_v" + str(version) + "/"

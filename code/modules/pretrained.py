@@ -29,7 +29,7 @@ class KnownModel:
         self.learning_rate = lr if lr else 1e-3
         self.optimizer = torch.optim.Adam(self.model.parameters(), self.learning_rate)
         self.criterion = nn.CrossEntropyLoss()
-        if device is None and self.device == "cpu":
+        if device is None and "cuda" not in str(self.device):
             print("WARNING: GPU not found to be available. Model and data will be loaded into CPU.")
 
     def initialize_model_weights(self):
@@ -49,35 +49,37 @@ class KnownModel:
                 raise ValueError(f"Input model name does not match any of the available ones in torch vision.")
         self.model = models.get_model(self.model_name, weights=self.model_weights)
 
-    def freeze_all_layers_but_fc(self):
+    def _freeze_all_layers_but_fc(self):
         for param in self.model.parameters():
             param.requires_grad = False
         for param_fc in self.model.fc.parameters():
             param_fc.requires_grad = True
 
-    def unfreeze_all(self):
+    def _unfreeze_all(self):
         for param in self.model.parameters():
             param.requires_grad = True
 
-    def reset_fc_layer(self, num_classes: int):
+    def _reset_fc_layer(self, num_classes: int):
         self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
 
-    def set_optimizer(self, optimizer: str):
+    def _set_optimizer(self, optimizer: str):
         if optimizer not in KnownModel.available_optimizers:
             suggested_optimizer = unmatch_suggest(KnownModel.available_optimizers, optimizer)
-            print(f"WARNING: Selected optimizer not available. Did you mean {suggested_optimizer}? Available options are: {KnownModel.available_optimizers}. Using default (adam) now.")
+            raise ValueError(f"WARNING: Selected optimizer not available. Did you mean {suggested_optimizer}? Available options are: {KnownModel.available_optimizers}. Using default (adam) now.")
         else:
-            optimizers = {"adam": torch.optim.Adam(self.model.parameters(), self.learning_rate),
-                          "sgd": torch.optim.SGD(self.model.parameters(), self.learning_rate), 
-                          "rmsprop": torch.optim.RMSprop(self.model.parameters(), self.learning_rate)}
+            optimizers = {"adam": torch.optim.Adam((p for p in self.model.parameters() if p.requires_grad), self.learning_rate),
+                          "sgd": torch.optim.SGD((p for p in self.model.parameters() if p.requires_grad), self.learning_rate), 
+                          "rmsprop": torch.optim.RMSprop((p for p in self.model.parameters() if p.requires_grad), self.learning_rate)}
             self.optimizer = optimizers[optimizer]
 
-    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 20, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
-        self.reset_fc_layer(num_classes=len(train_loader.dataset.classes))
+    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 30, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
+        self._reset_fc_layer(num_classes=len(train_loader.dataset.classes))
         if self.pretrained:
-            self.freeze_all_layers_but_fc()
+            self._freeze_all_layers_but_fc()
         else:
-            self.unfreeze_all()
+            self._unfreeze_all()
+
+        self._set_optimizer("adam")
 
         self.model.to(self.device)
         best_model = deepcopy(self.model.state_dict())

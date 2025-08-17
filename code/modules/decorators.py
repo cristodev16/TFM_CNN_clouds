@@ -31,7 +31,6 @@ def output_state_warning(func: Callable[..., Any]) -> Callable[..., Any]:
         pieces.extend(str(arg) for arg in args)
         pieces.extend(f"{k}={v}" for k, v in kwargs.items())
         message = "\n\t- ".join(pieces)
-        print(message)
         return subject, message
 
     @wraps(func)

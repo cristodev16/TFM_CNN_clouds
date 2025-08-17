@@ -51,7 +51,7 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
         f"\t- Full Train: {args.full_train} \n\n")
 
     print("Initializing log: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + "\n")
-    print("- Initializing variables...")
+    print("- Initializing variables and model...")
 
     seed = 100510664
     fix_seed(seed)
@@ -82,7 +82,7 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
             # Train with validation and early_stopping
             train_train_losses, val_losses, n_epochs, parameters_val = model.train(train_loader=train_train_loader, val_loader=val_loader)
             results[test_dates[i]] = {"train_train_losses": train_train_losses, "val_losses": val_losses, "n_epochs": n_epochs}
-            print(f"\t\t- Successful training: Saving model...")
+            print(f"\t\tSuccessful training: Saving model...")
             torch.save(parameters_val, save_dir + f"model_weights_{test_dates[i]}_validation.pth")
             torch.cuda.empty_cache()
             
@@ -91,7 +91,7 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
             model.initialize_model_weights()
             train_losses, _, _, parameters = model.train(train_loader=train_loader, epochs=n_epochs, validation=False)
             results[test_dates[i]]["train_losses"] = train_losses
-            print(f"\t\t- Successful training: Saving model...")
+            print(f"\t\tSuccessful training: Saving model...")
             torch.save(parameters, save_dir + f"model_weights_{test_dates[i]}.pth")
             torch.cuda.empty_cache()
 
@@ -103,9 +103,11 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
             results[test_dates[i]]["class_report"] = class_report
             results[test_dates[i]]["cm"] = conf_matrix.tolist()
 
-            print("\t\t- Process successful: Cleaning data...")
+            print("\tProcess successful: Cleaning data...")
+            # Clean loaders and re-initialize weights
             torch.cuda.empty_cache()
             del train_train_loader, train_loader, val_loader, test_loader
+            model.initialize_model_weights()
 
         elif args.full_train:
             print(f"\t- Retraining the with the whole dataset and avergaed number of epochs...")
@@ -122,11 +124,11 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
             # Reinitialize model, train and save data
             model.initialize_model_weights()
             losses, _, _, full_parameters = model.train(train_loader=dataloader, epochs=avg_epochs, validation=False)
-            print(f"\t\t- Successful training: Saving model...")
+            print(f"\t\tSuccessful training: Saving model...")
             results["full_model"] = {"train_losses": losses}
             torch.save(full_parameters, save_dir + f"full_model_weights.pth")
 
-            print("\t\t- Process successful: Cleaning data...")
+            print("\tProcess successful: Cleaning data...")
             torch.cuda.empty_cache()
             del dataloader, data, model
 
