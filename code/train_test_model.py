@@ -26,12 +26,13 @@ def main():
     argparser.add_argument("-m", "--model", required=True, help="Indicate the model (available in pytorch) whose architecture we will use.")
     argparser.add_argument("-p", "--pretrained", action="store_true", help="Activate to train dense layer only for the selected model")
     argparser.add_argument("-r", "--resize", action="store_true", help="Avtivate to use resizing in the transformer to adapt the input images' sizes to those of ImageNet.")
+    argparser.add_argument("-s", "--simplified_classes", action="store_true", help="Avtivate to use use a simplified set of classes for our problem.")
     argparser.add_argument("-ft", "--full_train", action="store_true", help="Activate to train the selected parts of the chosen model using all the available data once all testing has been done.")
     args = argparser.parse_args()
 
     # LOAD PRE-DATA
     test_dates = pd.read_csv("../data/test_dates.csv")["test_datetimes"].tolist()
-    save_dir = results_dir(args.model, args.pretrained)
+    save_dir = results_dir(args.model, args.pretrained, args.simplified_classes)
 
     # Execute main logic of the program
     sub_main(args, test_dates, save_dir)
@@ -46,6 +47,7 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
         f"\t- Model: {args.model}\n"
         f"\t- Pretrained: {args.pretrained}\n"
         f"\t- Resize: {args.resize}\n"
+        f"\t- Simplified classes: {args.simplified_classes}\n"
         f"\t- Test-set days: {test_dates}\n"
         f"\t- Saving directory: {save_dir}\n"
         f"\t- Full Train: {args.full_train} \n\n")
@@ -59,7 +61,7 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
     # LOAD DATA 
     labels_df_path = "/home/csanchezmoreno/tfm/data/metadata_reduced.pickle"
     images_path = "/home/csanchezmoreno/tfm/data/imageset_reduced.pickle"
-    data = Data(images_path, labels_df_path)
+    data = Data(images_path, labels_df_path, simplified=args.simplified_classes)
 
     # VARIABLES AND MODEL INITIALIZATION AND CONFIGURATION
     transform = pretrainedTransforms(resizing=args.resize) # Only one fixed option (pretrained for now) for the transform

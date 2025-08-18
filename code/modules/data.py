@@ -28,12 +28,19 @@ class MyDataset(Dataset):
         return img, label
 
 class Data:
-    def __init__(self, path_to_images: str, path_to_df: str):
+    def __init__(self, path_to_images: str, path_to_df: str, simplified: bool = False):
         self.data_df = pd.read_pickle(path_to_df).reset_index()
         self.data_images = pd.read_pickle(path_to_images)
+        if simplified:
+            replacements = {"cirrocumulo": "cirro/alto-cúmulo", "altocumulo": "cirro/alto-cúmulo",
+                            "cirro": "cirro(estrato)", "cirroestrato": "cirro(estrato)",
+                            "altoestrato": "(alto)estrato", "estrato": "(alto)estrato"}
+            self.data_df = self.data_df.replace(replacements)
         self.label_encoder = LabelEncoder()
         classes = sorted(set(self.data_df["types"].values))
         self.label_encoder.fit(classes)
+        print(classes, len(classes))
+        
 
     def _get_train_test_val_indices(self, date: str, stratified_split: StratifiedShuffleSplit, strategy: str = "loo-days") -> tuple[np.ndarray, np.ndarray, np.ndarray]:        
         if strategy == "loo-days":

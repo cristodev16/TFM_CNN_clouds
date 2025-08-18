@@ -19,7 +19,7 @@ def fix_seed(seed: int = 100510664):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def results_dir(model: str, pretrained: bool, main_rel_path: str = "../data/results"):
+def results_dir(model: str, pretrained: bool, simplified_classes: bool, main_rel_path: str = "../data/results"):
     """
     Creates a new folder to store results avoiding repetitons and overwritings of 
     previous similar verisons. Assumes fixed relative folders structure and existance
@@ -35,10 +35,11 @@ def results_dir(model: str, pretrained: bool, main_rel_path: str = "../data/resu
     """
     model_path = model
     pretrained_path = "_pretrained" if pretrained else ""
+    simplified_path = "_simplified_classes" if simplified_classes else ""
     version = 1
-    full_path = main_rel_path + "/" + model_path + pretrained_path + "_v" + str(version) + "/"
+    full_path = main_rel_path + "/" + model_path + pretrained_path + simplified_path + "_v" + str(version) + "/"
     while os.path.exists(full_path):
         version += 1
-        full_path = main_rel_path + "/" + model_path + "_" + pretrained_path + "_v" + str(version) + "/"
+        full_path = main_rel_path + "/" + model_path + "_" + pretrained_path + simplified_path + "_v" + str(version) + "/"
     os.mkdir(full_path)
     return full_path

@@ -27,7 +27,6 @@ class KnownModel:
         self.initialize_model_weights()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") if device is None else device
         self.learning_rate = lr if lr else 1e-3
-        self.optimizer = torch.optim.Adam(self.model.parameters(), self.learning_rate)
         self.criterion = nn.CrossEntropyLoss()
         if device is None and "cuda" not in str(self.device):
             print("WARNING: GPU not found to be available. Model and data will be loaded into CPU.")
@@ -65,14 +64,14 @@ class KnownModel:
     def _set_optimizer(self, optimizer: str):
         if optimizer not in KnownModel.available_optimizers:
             suggested_optimizer = unmatch_suggest(KnownModel.available_optimizers, optimizer)
-            raise ValueError(f"WARNING: Selected optimizer not available. Did you mean {suggested_optimizer}? Available options are: {KnownModel.available_optimizers}. Using default (adam) now.")
+            raise ValueError(f"Selected optimizer not available. Did you mean {suggested_optimizer}? Available options are: {KnownModel.available_optimizers}. Using default (adam) now.")
         else:
             optimizers = {"adam": torch.optim.Adam((p for p in self.model.parameters() if p.requires_grad), self.learning_rate),
                           "sgd": torch.optim.SGD((p for p in self.model.parameters() if p.requires_grad), self.learning_rate), 
                           "rmsprop": torch.optim.RMSprop((p for p in self.model.parameters() if p.requires_grad), self.learning_rate)}
             self.optimizer = optimizers[optimizer]
 
-    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 30, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
+    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 40, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
         self._reset_fc_layer(num_classes=len(train_loader.dataset.classes))
         if self.pretrained:
             self._freeze_all_layers_but_fc()
@@ -105,7 +104,6 @@ class KnownModel:
             train_losses.append(avg_train_loss)
 
             if not validation:
-
                 print(f"\t\tEpoch {epoch+1}/{epochs} - Train Loss: {avg_train_loss:.4f}")
 
             if validation:
