@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import pandas as pd
 from sklearn.model_selection import StratifiedShuffleSplit
-from modules.transformations import pretrainedTransforms
 from modules.data import Data
 from modules.pretrained import KnownModel
 from modules.tools import fix_seed, results_dir
@@ -28,11 +27,15 @@ def main():
     argparser.add_argument("-r", "--resize", action="store_true", help="Avtivate to use resizing in the transformer to adapt the input images' sizes to those of ImageNet.")
     argparser.add_argument("-s", "--simplified_classes", action="store_true", help="Avtivate to use use a simplified set of classes for our problem.")
     argparser.add_argument("-ft", "--full_train", action="store_true", help="Activate to train the selected parts of the chosen model using all the available data once all testing has been done.")
+    argparser.add_argument("-cw", "--class_weights", action="store_true", help="Activate to train the selected parts of the chosen model using an inverse frequency weighting in the loss function.")
+    argparser.add_argument("-twvd", "--training_with_validation_data", action="store_true", help="Activate to re-train the model before testing using validation data as well.")
+    argparser.add_argument("-lr", "--learning_rate", type=float, default=1e-3, help="If included indicates the learning rate to use when training. If not included set to default value: 1e-3.")
+    argparser.add_argument("-se", "--stratified_eval", action="store_true", help="If activated uses a (non-day-block) stratified split for selecting the evaluation subset.")
     args = argparser.parse_args()
 
     # LOAD PRE-DATA
     test_dates = pd.read_csv("../data/test_dates.csv")["test_datetimes"].tolist()
-    save_dir = results_dir(args.model, args.pretrained, args.simplified_classes)
+    save_dir = results_dir(args.model, args.pretrained, args.simplified_classes, args.class_weights)
 
     # Execute main logic of the program
     sub_main(args, test_dates, save_dir)
@@ -47,9 +50,13 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
         f"\t- Model: {args.model}\n"
         f"\t- Pretrained: {args.pretrained}\n"
         f"\t- Resize: {args.resize}\n"
+        f"\t- Learning rate: {args.learning_rate}\n"
         f"\t- Simplified classes: {args.simplified_classes}\n"
+        f"\t- Class weighting in the loss function: {args.class_weights}\n"
         f"\t- Test-set days: {test_dates}\n"
+        f"\t- Stratified evaluation: {args.stratified_eval}\n"
         f"\t- Saving directory: {save_dir}\n"
+        f"\t- Re-training with validation data too: {args.training_with_validation_data}\n"
         f"\t- Full Train: {args.full_train} \n\n")
 
     print("Initializing log: " + time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()) + "\n")
@@ -58,54 +65,60 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
     seed = 100510664
     fix_seed(seed)
 
+    print("- Loading data...")
     # LOAD DATA 
     labels_df_path = "/home/csanchezmoreno/tfm/data/metadata_reduced.pickle"
     images_path = "/home/csanchezmoreno/tfm/data/imageset_reduced.pickle"
-    data = Data(images_path, labels_df_path, simplified=args.simplified_classes)
+    data = Data(images_path, labels_df_path, simplified=args.simplified_classes, class_weights=args.class_weights, pretrained=args.pretrained, resize=args.resize)
 
     # VARIABLES AND MODEL INITIALIZATION AND CONFIGURATION
-    transform = pretrainedTransforms(resizing=args.resize) # Only one fixed option (pretrained for now) for the transform
-    model = KnownModel(args.model, args.pretrained) # So far, fixed layers selection to train based on whether we choose pretrained or not.
-    results = {}
+    model = KnownModel(args.model, args.pretrained, args.learning_rate, data.inverse_freq) # So far, fixed layers selection to train based on whether we choose pretrained or not.
+    results = {"execution_metadata": vars(args), "encoding_map": {cls: idx for idx, cls in enumerate(data.label_encoder.classes_)}}
 
     print("- Initializing the training/testing...")
-
     # Iterative training and testing 
     for i in range(len(test_dates)+1):
-        stratified_split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=seed+i)
+        stratified_split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=seed+i) if args.stratified_eval else None
+        t0_i = time.time()
         if i != len(test_dates):
             print(f"\t- Testing date: {test_dates[i]}")
 
-            print("\t\t- Loading required data...")
+            print("\t\t- Getting training, validation and testing loaders...")
             # Get DataLoader() objects
-            train_loader, train_train_loader, val_loader, test_loader = data.get_loaders(test_dates[i], stratified_split, transform)
+            train_loader, train_train_loader, val_loader, test_loader = data.get_loaders(test_dates[i], stratified_split = stratified_split)
 
             print("\t\t- Training with validation for number of epochs adjustment...")
             # Train with validation and early_stopping
-            train_train_losses, val_losses, n_epochs, parameters_val = model.train(train_loader=train_train_loader, val_loader=val_loader)
-            results[test_dates[i]] = {"train_train_losses": train_train_losses, "val_losses": val_losses, "n_epochs": n_epochs}
+            train_train_losses, val_losses, n_epochs, parameters_val, best_model_bacc_val = model.train(train_loader=train_train_loader, val_loader=val_loader)
+            print()
+            results[test_dates[i]] = {"train_train_losses": train_train_losses, "val_losses": val_losses, "n_epochs": n_epochs, "best_model_no_retrain_val_baccuracy": best_model_bacc_val}
             print(f"\t\tSuccessful training: Saving model...")
             torch.save(parameters_val, save_dir + f"model_weights_{test_dates[i]}_validation.pth")
             torch.cuda.empty_cache()
-            
-            print(f"\t\t- Training with whole training data and {n_epochs} epochs...")
-            # Re-initialize model and train with a fixed number of epochs
-            model.initialize_model_weights()
-            train_losses, _, _, parameters = model.train(train_loader=train_loader, epochs=n_epochs, validation=False)
-            results[test_dates[i]]["train_losses"] = train_losses
-            print(f"\t\tSuccessful training: Saving model...")
-            torch.save(parameters, save_dir + f"model_weights_{test_dates[i]}.pth")
-            torch.cuda.empty_cache()
+            t1_i = time.time()
+            results[test_dates[i]]["training_times"] = {"train_val": t1_i - t0_i}
+
+            if args.training_with_validation_data:
+                print("\t\t- Getting training and testing loaders...")
+                train_loader, _, _, test_loader = data.get_loaders(test_dates[i], validation=False, stratified_split = stratified_split)
+                print(f"\t\t- Training with whole training data and {n_epochs} epochs...")
+                # Re-initialize model and train with a fixed number of epochs
+                model.initialize_model_weights()
+                train_losses, _, _, parameters, _ = model.train(train_loader=train_loader, epochs=n_epochs, validation=False)
+                results[test_dates[i]]["train_losses"] = train_losses
+                print(f"\t\tSuccessful training: Saving model...")
+                torch.save(parameters, save_dir + f"model_weights_{test_dates[i]}.pth")
+                torch.cuda.empty_cache()
+                results[test_dates[i]]["training_times"]["full_train"] = time.time() - t1_i
 
             print("\t\t- Testing and extracting measures...")
             # Test model and keep results
-            avg_test_loss, accuracy, class_report, conf_matrix = model.test(test_loader=test_loader)
+            avg_test_loss, predictions, labels = model.pred(test_loader=test_loader)
             results[test_dates[i]]["avg_test_loss"] = avg_test_loss
-            results[test_dates[i]]["accuracy"] = accuracy
-            results[test_dates[i]]["class_report"] = class_report
-            results[test_dates[i]]["cm"] = conf_matrix.tolist()
+            results[test_dates[i]]["predictions"] = predictions
+            results[test_dates[i]]["labels"] = labels
 
-            print("\tProcess successful: Cleaning data...")
+            print("\tProcess successful: Cleaning data and re-initializing model...")
             # Clean loaders and re-initialize weights
             torch.cuda.empty_cache()
             del train_train_loader, train_loader, val_loader, test_loader
@@ -114,17 +127,16 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
         elif args.full_train:
             print(f"\t- Retraining the with the whole dataset and avergaed number of epochs...")
 
-            # Get average number of epochs
-            epochs = [results_i["n_epochs"] for _, results_i in results.items()]
+            # Get average number of epochs --> We should actually do HPO again here.
+            epochs = [results_i["n_epochs"] for key, results_i in results.items() if "2015" in key]
             avg_epochs = int(np.round(np.average(epochs)))
 
-            print("\t\t- Loading required data...")
+            print("\t\t- Getting training loader...")
             # Get dataloader with all information 
-            dataloader = data.get_full_loader(transformation=transform)
+            dataloader = data.get_full_loader()
 
             print("\t\t- Training...")
-            # Reinitialize model, train and save data
-            model.initialize_model_weights()
+            # Train and save data
             losses, _, _, full_parameters = model.train(train_loader=dataloader, epochs=avg_epochs, validation=False)
             print(f"\t\tSuccessful training: Saving model...")
             results["full_model"] = {"train_losses": losses}
@@ -133,6 +145,7 @@ def sub_main(args: Namespace, test_dates: list[str], save_dir: str):
             print("\tProcess successful: Cleaning data...")
             torch.cuda.empty_cache()
             del dataloader, data, model
+            results["full_model"]["training_time"] = time.time() - t0_i
 
     print(f"- Saving result metrics...\n\n")
     with open(save_dir+"results.json", "w") as f:

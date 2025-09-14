@@ -4,9 +4,9 @@ import torch
 import torch.nn as nn
 from copy import deepcopy
 from collections import OrderedDict
-from sklearn.metrics import classification_report, confusion_matrix
 import numpy as np 
 from difflib import SequenceMatcher
+from sklearn.metrics import balanced_accuracy_score
 from types import NoneType
 
 def unmatch_suggest(available_elements: list[str], element: str) -> NoneType | str:
@@ -21,13 +21,13 @@ def unmatch_suggest(available_elements: list[str], element: str) -> NoneType | s
 class KnownModel:
     available_optimizers: list[str] = ["adam", "sgd", "rmsprop"]
 
-    def __init__(self, model_name: str, pretrained: bool = False, device: torch.device | NoneType = None, lr: float | NoneType = None):
+    def __init__(self, model_name: str, pretrained: bool = False, lr: float = 1e-3, class_weights: list[float] | NoneType = None, device: torch.device | NoneType = None):
         self.model_name = model_name
         self.pretrained = pretrained
         self.initialize_model_weights()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu") if device is None else device
-        self.learning_rate = lr if lr else 1e-3
-        self.criterion = nn.CrossEntropyLoss()
+        self.learning_rate = lr
+        self.criterion = nn.CrossEntropyLoss(weight=class_weights.to(self.device)) if class_weights is not None else nn.CrossEntropyLoss()
         if device is None and "cuda" not in str(self.device):
             print("WARNING: GPU not found to be available. Model and data will be loaded into CPU.")
 
@@ -51,15 +51,27 @@ class KnownModel:
     def _freeze_all_layers_but_fc(self):
         for param in self.model.parameters():
             param.requires_grad = False
-        for param_fc in self.model.fc.parameters():
-            param_fc.requires_grad = True
+        if "resnet" in self.model_name:
+            for param in self.model.fc.parameters():
+                param.requires_grad = True
+        elif "vgg" in self.model_name:
+            for param in self.model.classifier[-1].parameters():
+                param.requires_grad = True
+        elif "densenet" in self.model_name:
+            for param in self.model.classifier.parameters():
+                param.requires_grad = True
 
     def _unfreeze_all(self):
         for param in self.model.parameters():
             param.requires_grad = True
 
-    def _reset_fc_layer(self, num_classes: int):
-        self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+    def _reset_decision_layer(self, num_classes: int):
+        if "resnet" in self.model_name:
+            self.model.fc = nn.Linear(self.model.fc.in_features, num_classes)
+        elif "vgg" in self.model_name:
+            self.model.classifier[-1] = nn.Linear(self.model.classifier[-1].in_features, num_classes)
+        elif "densenet" in self.model_name:
+            self.model.classifier = nn.Linear(self.model.classifier.in_features, num_classes)
 
     def _set_optimizer(self, optimizer: str):
         if optimizer not in KnownModel.available_optimizers:
@@ -71,8 +83,8 @@ class KnownModel:
                           "rmsprop": torch.optim.RMSprop((p for p in self.model.parameters() if p.requires_grad), self.learning_rate)}
             self.optimizer = optimizers[optimizer]
 
-    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 40, patience: int = 5, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
-        self._reset_fc_layer(num_classes=len(train_loader.dataset.classes))
+    def train(self, train_loader: DataLoader, val_loader: DataLoader = None, epochs: int = 400, patience: int = 30, validation: bool = True, early_stopping: bool = True) -> tuple[list[float], list[float], OrderedDict]:
+        self._reset_decision_layer(num_classes=len(train_loader.dataset.classes))
         if self.pretrained:
             self._freeze_all_layers_but_fc()
         else:
@@ -81,11 +93,13 @@ class KnownModel:
         self._set_optimizer("adam")
 
         self.model.to(self.device)
-        best_model = deepcopy(self.model.state_dict())
+        #best_model = deepcopy(self.model.state_dict())
+        best_model = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
         best_loss = float('inf')
         wait = 0 if early_stopping else None
         train_losses = []
         val_losses = [] if validation else None
+        bal_acc_validation = None
 
         for epoch in range(epochs):
             self.model.train()
@@ -109,10 +123,12 @@ class KnownModel:
             if validation:
                 self.model.eval()
                 val_loss = 0.0
+                val_preds = []
                 with torch.no_grad():
                     for inputs, labels in val_loader:
                         inputs, labels = inputs.to(self.device), labels.to(self.device)
                         outputs = self.model(inputs)
+                        val_preds.extend(torch.max(outputs, 1)[1].cpu().numpy().tolist())
                         loss = self.criterion(outputs, labels)
                         val_loss += loss.item()
                 avg_val_loss = val_loss / len(val_loader)
@@ -124,7 +140,9 @@ class KnownModel:
                     if avg_val_loss < best_loss:
                         best_loss = avg_val_loss
                         del best_model
-                        best_model = deepcopy(self.model.state_dict())
+                        #best_model = deepcopy(self.model.state_dict())
+                        best_model = {k: v.detach().cpu().clone() for k, v in self.model.state_dict().items()}
+                        bal_acc_validation = balanced_accuracy_score(val_loader.dataset.label_indices, val_preds)
                         wait = 0
                     else:
                         wait += 1
@@ -138,15 +156,13 @@ class KnownModel:
         if validation and early_stopping: 
             self.model.load_state_dict(best_model)
 
-        return train_losses, val_losses, n_epochs, self.model.state_dict()
+        return train_losses, val_losses, n_epochs, self.model.state_dict(), bal_acc_validation
     
-    def test(self, test_loader: DataLoader) -> tuple[float, float, dict, np.ndarray]:
+    def pred(self, test_loader: DataLoader) -> tuple[float, float, dict, np.ndarray]:
         self.model.to(self.device)
         self.model.eval()
 
         test_loss = 0.0
-        correct = 0
-        total = 0
         all_preds = []
         all_labels = []
 
@@ -158,16 +174,11 @@ class KnownModel:
                 test_loss += loss.item()
 
                 _, predicted = torch.max(outputs, 1)
-                total += labels.size(0)
-                correct += (predicted == labels).sum().item()
 
-                all_preds.extend(predicted.cpu().numpy())
-                all_labels.extend(labels.cpu().numpy())
+                all_preds.extend(predicted.cpu().numpy().tolist())
+                all_labels.extend(labels.cpu().numpy().tolist())
 
         avg_test_loss = test_loss / len(test_loader)
-        accuracy = correct / total
-        class_report = classification_report(all_labels, all_preds, output_dict=True)
-        conf_matrix = confusion_matrix(all_labels, all_preds)
 
-        print(f"\t\tTest Loss: {avg_test_loss:.4f} - Test Accuracy: {accuracy*100:.2f}%")
-        return avg_test_loss, accuracy, class_report, conf_matrix
+        print(f"\t\tTest Loss: {avg_test_loss:.4f}. Compute accuracy later with the predictions and labels.")
+        return avg_test_loss, all_preds, all_labels

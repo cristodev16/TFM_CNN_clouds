@@ -5,4 +5,4 @@ THE ORIGINAL DATA ARE NOT KEPT HERE FOR THE SAKE OF THE STORAGE CAPACITY. CHECK 
 - metadata_reduced.pickle (Metadata for excluded aerosol, multinube and nimbostrato types instances. Obtained through the same notebook as imagest_reduced.pickle)
 - results (directory) (Directory containing the results of the different trained models)
 
-All of the previous can be found in the UC3M server 163.117.164.145 under the user csanchezmoreno (path: /home/csanchezmoreno/tfm/data).
+All of the previous can be found in the UC3M server provided to develop the project under the user csanchezmoreno

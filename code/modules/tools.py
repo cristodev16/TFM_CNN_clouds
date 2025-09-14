@@ -1,3 +1,4 @@
+from typing import Any
 import random
 import numpy as np
 import torch
@@ -19,7 +20,7 @@ def fix_seed(seed: int = 100510664):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def results_dir(model: str, pretrained: bool, simplified_classes: bool, main_rel_path: str = "../data/results"):
+def results_dir(model: str, pretrained: bool, simplified_classes: bool, class_weights: bool, main_rel_path: str = "../data/results"):
     """
     Creates a new folder to store results avoiding repetitons and overwritings of 
     previous similar verisons. Assumes fixed relative folders structure and existance
@@ -36,10 +37,20 @@ def results_dir(model: str, pretrained: bool, simplified_classes: bool, main_rel
     model_path = model
     pretrained_path = "_pretrained" if pretrained else ""
     simplified_path = "_simplified_classes" if simplified_classes else ""
+    weights_path = "_weighted" if class_weights else ""
     version = 1
-    full_path = main_rel_path + "/" + model_path + pretrained_path + simplified_path + "_v" + str(version) + "/"
+    full_path = main_rel_path + "/" + model_path + pretrained_path + simplified_path + weights_path + "_v" + str(version) + "/"
     while os.path.exists(full_path):
         version += 1
-        full_path = main_rel_path + "/" + model_path + "_" + pretrained_path + simplified_path + "_v" + str(version) + "/"
+        full_path = main_rel_path + "/" + model_path + pretrained_path + simplified_path + weights_path + "_v" + str(version) + "/"
     os.mkdir(full_path)
     return full_path
+
+def get_weights(classes: list[str], data: list[Any]):
+    freqs = []
+    total_data = len(data)
+    inverse_freq_weights = []
+    for label in classes:
+        inverse_freq_weights.append(total_data/data.count(label))
+        freqs.append(data.count(label))
+    return inverse_freq_weights

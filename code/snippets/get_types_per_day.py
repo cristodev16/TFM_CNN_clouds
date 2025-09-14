@@ -2,7 +2,7 @@ import pandas as pd
 
 
 # Load metadata
-types = pd.read_pickle('metadata.pickle')
+types = pd.read_pickle('../../data/metadata_reduced.pickle')
 
 
 # ----------------------- Inspection -----------------------
@@ -48,7 +48,7 @@ print(results_df)
 
 
 # Export to .csv file:
-#results_df.to_csv(path_or_buf="types_per_day.csv", index=False)
+#results_df.to_csv(path_or_buf="../../data/types_per_day_reduced.csv", index=False)
 
 # Export to pickle file:
 #results_df.to_pickle(path="types_per_day.pickle")
